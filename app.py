@@ -180,10 +180,38 @@ def load_model(model_name, checkpoint_path):
         G = DCGANGenerator().to(device)
         D = DCGANDiscriminator().to(device)
     else:
-        # For custom models, we would need their architecture definition. 
-        # For now, we return None and show a warning in the UI if logic isn't there
-        st.warning(f"Architecture for '{model_name}' is not defined in app.py yet. Only weights have been uploaded.")
-        return None, None, None
+        # Dynamic import for custom models
+        model_dir = MODEL_DIRS.get(model_name)
+        if not model_dir: 
+            return None, None, None
+            
+        py_path = os.path.join(model_dir, "model.py")
+        if not os.path.exists(py_path):
+            st.warning(f"No 'model.py' architecture file found for {model_name}. Please upload one!")
+            return None, None, None
+            
+        import importlib.util
+        import sys
+        
+        # Ensure we don't cache an old version of the module if they re-upload
+        module_name = f"dynamic_gan_{model_name.replace(' ', '_')}"
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+            
+        spec = importlib.util.spec_from_file_location(module_name, py_path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            if not hasattr(module, "Generator") or not hasattr(module, "Discriminator"):
+                st.error(f"The uploaded 'model.py' for {model_name} must contain classes named exactly 'Generator' and 'Discriminator'.")
+                return None, None, None
+                
+            G = module.Generator().to(device)
+            D = module.Discriminator().to(device)
+        except Exception as e:
+            st.error(f"Error loading custom architecture '{model_name}': {e}")
+            return None, None, None
         
     G.load_state_dict(ckpt["generator_state_dict"])
     D.load_state_dict(ckpt["discriminator_state_dict"])
@@ -272,10 +300,10 @@ with st.sidebar.expander("⬆️ Upload Custom Epoch Results", expanded=False):
         
     if upload_type:
         uploaded_files = st.file_uploader(
-        "Epoch Results (.pt, .png)", 
+        "Architecture & Epoch Results (.py, .pt, .png)", 
         accept_multiple_files=True, 
-        type=["pt", "png"], 
-        help="e.g., 'epoch_100.pt' or 'epoch_100.png'"
+        type=["py", "pt", "png"], 
+        help="e.g., 'model.py', 'epoch_100.pt', 'epoch_100.png'. Your python file MUST contain 'Generator' and 'Discriminator' classes."
     )
     
     if st.button("Save Uploaded Results", use_container_width=True):
@@ -297,6 +325,7 @@ with st.sidebar.expander("⬆️ Upload Custom Epoch Results", expanded=False):
             
             saved_weights = 0
             saved_imgs = 0
+            saved_code = 0
             
             for uf in uploaded_files:
                 if uf.name.endswith(".pt"):
@@ -310,10 +339,16 @@ with st.sidebar.expander("⬆️ Upload Custom Epoch Results", expanded=False):
                     with open(save_path, "wb") as f:
                         f.write(uf.getbuffer())
                     saved_imgs += 1
+                elif uf.name.endswith(".py"):
+                    # Always save uploaded python architecture as model.py
+                    save_path = os.path.join(base_model_dir, "model.py")
+                    with open(save_path, "wb") as f:
+                        f.write(uf.getbuffer())
+                    saved_code += 1
             
             if hasattr(st, "toast"):
-                 st.toast(f"✅ Saved {saved_weights} weights and {saved_imgs} images for {upload_type}!")
-            st.success(f"✅ Saved {saved_weights} weights and {saved_imgs} images to {upload_type}!")
+                 st.toast(f"✅ Saved {saved_weights} weights, {saved_imgs} images, {saved_code} code files for {upload_type}!")
+            st.success(f"✅ Saved {saved_weights} weights, {saved_imgs} images, {saved_code} code files to {upload_type}!")
             
             import time
             time.sleep(1)
