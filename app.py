@@ -20,7 +20,7 @@ st.set_page_config(page_title="GAN Lab", page_icon="🎨", layout="wide")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Paths and Constants
-BASE_DIR = r"c:\Users\shiva\OneDrive\Desktop\GAN_Project"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIRS = {
     "Vanilla GAN": os.path.join(BASE_DIR, "vanilla_gan"),
     "cGAN": os.path.join(BASE_DIR, "cgan"),
